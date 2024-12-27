@@ -4,9 +4,15 @@ import Wallet from '../schema/wallet.js';
 
 // Create a new patient
 export const createPatient = async (req, res) => {
-    try {
-        const newPatient = new Patient(req.body);
+    try { 
+        // Create a new patient with hashed password
+        const newPatient = new Patient({
+            ...req.body, 
+            password: await hashPassword(req.body.password)
+        });
+
         await newPatient.save();
+    
         const newWallet = await getPatientWallet(newPatient._id);
 
         res.status(201).json({ patient: newPatient, wallet: newWallet });
@@ -22,7 +28,7 @@ export const loginPatient = async (req, res) => {
         if (!patient) {
             return res.status(404).json({ message: 'Patient not found' });
         }
-        if (patient.password !== req.body.password) {
+        if (!comparePassword(req.body.password, patient.password)) {
             return res.status(401).json({ message: 'Invalid credentials' });
         }
         const wallet = await getPatientWallet(patient._id);

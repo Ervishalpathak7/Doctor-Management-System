@@ -4,7 +4,7 @@ import Wallet from '../schema/wallet.js'; // Import Wallet model
 // Book a new appointment
 export const bookAppointment = async (req, res) => {
     try {
-        const { patientId, doctorId, discountUsed } = req.body;
+        const { patientId, doctorId, appointmentDate , discountUsed } = req.body;
 
         const appointmentExists = await Appointment.findOne({ patientId, doctorId });
         if (appointmentExists && discountUsed) {
