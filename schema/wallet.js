@@ -12,7 +12,7 @@ const walletSchema = new mongoose.Schema({
   },
   transactions: [
     {
-      type: {
+      transactionType: {
         type: String, // "credit" or "debit"
         required: true,
       },

@@ -10,7 +10,6 @@ import walletRouter from "./routes/wallet.js";
 import financialreportRouter from "./routes/financialreport.js";
 import authMiddleware from "./middleware/auth.js"
 import validInfo from "./middleware/valid.js";
-import authRouter from "./routes/auth.js";
 import errorMiddleware from "./middleware/error.js";
 
 // Express App
@@ -34,7 +33,6 @@ app.use(cors({
 }));
 
 // Routes
-app.use('/auth', validInfo, authRouter); // Authentication route
 app.use('/doctors', authMiddleware, validInfo, doctorRouter); // Doctors route
 app.use('/patient', authMiddleware, validInfo, patientRouter); // Patient route
 app.use('/appointment', authMiddleware, validInfo, appointmentRouter); // Appointment route

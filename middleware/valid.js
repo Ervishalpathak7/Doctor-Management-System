@@ -1,26 +1,33 @@
+import Joi from "joi";
 
-function validInfo(req, res, next){
-    const { name , email , password } = req.body
+const registerSchema = Joi.object({
+    name: Joi.string().min(3).required(),
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+});
 
-    if(req.path === "/register")
-    {
-        if(!name || !email || !password){
-            return res.status(400).json({msg: "Please fill in all fields"})
-        } else if(password.length < 6){
-            return res.status(400).json({msg: "Password must be at least 6 characters long"})
-        }
-    } 
+const loginSchema = Joi.object({
+    email: Joi.string().email().required(),
+    password: Joi.string().min(6).required(),
+});
 
-    else if(req.path === "/login")
-    {
-        if(!email || !password){
-            return res.status(400).json({msg: "Please fill in all fields"})
-        } else if(password.length < 6){
-            return res.status(400).json({msg: "Password must be at least 6 characters long"})
-        }
+function validInfo(req, res, next) {
+    let schema;
+    if (req.path === "/register") {
+        schema = registerSchema;
+    } else if (req.path === "/login") {
+        schema = loginSchema;
+    } else {
+        return next(); 
     }
 
-    next()
+    const { error, value } = schema.validate(req.body);
+    if (error) {
+        return res.status(400).json({ msg: error.details[0].message });
+    }
+
+    req.user = value; 
+    next();
 }
 
 export default validInfo;
