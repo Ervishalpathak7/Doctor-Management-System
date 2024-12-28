@@ -1,30 +1,83 @@
 import Appointment from '../schema/appointment.js'; // Import Appointment model
 import Wallet from '../schema/wallet.js'; // Import Wallet model
+import mongoose from 'mongoose';
+import { validateAppointmentDate, validateDiscountEligibility } from '../utils/appointment.js';
 
 // Book a new appointment
 export const bookAppointment = async (req, res) => {
+    const session = await mongoose.startSession();
+    session.startTransaction();
+
     try {
-        const { patientId, doctorId, appointmentDate , discountUsed } = req.body;
+        const { patientId, doctorId, appointmentDate, discountUsed } = req.body;
 
-        const appointmentExists = await Appointment.findOne({ patientId, doctorId });
-        if (appointmentExists && discountUsed) {
-            return res.status(400).json({ message: 'Discount already used for this doctor' });
+        // Input validation
+        if (!patientId || !doctorId || !appointmentDate) {
+            return res.status(400).json({ message: 'Missing required fields' });
         }
-        
-        const newAppointment = new Appointment(req.body);
-        await newAppointment.save();
 
-        // Deduct the amount from patient's wallet if discount is used
+        // Validate appointment date
+        if (!validateAppointmentDate(appointmentDate)) {
+            return res.status(400).json({ message: 'Invalid appointment date' });
+        }
+
+        // Check for existing appointments in the same time slot
+        const existingAppointment = await Appointment.findOne({
+            doctorId,
+            appointmentDate: {
+                $gte: new Date(appointmentDate),
+                $lt: new Date(new Date(appointmentDate).getTime() + 60 * 60 * 1000) // 1 hour slot
+            }
+        }).session(session);
+
+        if (existingAppointment) {
+            await session.abortTransaction();
+            return res.status(400).json({ message: 'Time slot already booked' });
+        }
+
+        // Check discount eligibility
         if (discountUsed) {
-            const patientWallet = await Wallet.findOne({ patientId });
-            const discountAmount = 50; 
-            patientWallet.balance -= discountAmount;
-            await patientWallet.save();
+            const isEligible = await validateDiscountEligibility(patientId, doctorId);
+            if (!isEligible) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: 'Not eligible for discount' });
+            }
+
+            // Handle wallet deduction
+            const patientWallet = await Wallet.findOne({ patientId }).session(session);
+            if (!patientWallet || patientWallet.balance < DISCOUNT_AMOUNT) {
+                await session.abortTransaction();
+                return res.status(400).json({ message: 'Insufficient wallet balance' });
+            }
+
+            patientWallet.balance -= DISCOUNT_AMOUNT;
+            await patientWallet.save({ session });
         }
 
-        res.status(201).json(newAppointment);
+        // Create appointment
+        const newAppointment = new Appointment({
+            patientId,
+            doctorId,
+            appointmentDate,
+            discountUsed,
+            status: 'scheduled',
+            createdAt: new Date()
+        });
+
+        await newAppointment.save({ session });
+        await session.commitTransaction();
+
+        res.status(201).json({
+            appointment: newAppointment,
+            message: 'Appointment booked successfully'
+        });
+
     } catch (error) {
-        res.status(500).json({ message: 'Error booking appointment', error });
+        await session.abortTransaction();
+        console.error('Appointment booking error:', error);
+        res.status(500).json({ message: 'Error booking appointment' });
+    } finally {
+        session.endSession();
     }
 };
 

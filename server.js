@@ -1,53 +1,156 @@
+// Import necessary modules
 import dotenv from "dotenv";
 import express from "express";
-import connect from "./database/mongo.js";
+import helmet from 'helmet';
+import compression from 'compression';
+import rateLimit from 'express-rate-limit';
+import mongoose from 'mongoose';
 import cookieParser from "cookie-parser";
 import cors from "cors";
+import winston from 'winston';
+import expressWinston from 'express-winston';
+
+// Routers
 import doctorRouter from "./routes/doctors.js";
 import patientRouter from "./routes/patient.js";
 import appointmentRouter from "./routes/appointment.js";
 import walletRouter from "./routes/wallet.js";
 import financialreportRouter from "./routes/financialreport.js";
-import authMiddleware from "./middleware/auth.js"
-import validInfo from "./middleware/valid.js";
-import errorMiddleware from "./middleware/error.js";
-
-// Express App
-const app = express();
-
-// Dotenv
-dotenv.config(); // Load environment variables from a .env file into process.env
 
 // Middleware
-app.use(express.json()); // Parse JSON bodies
-app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
+import authMiddleware from "./middleware/auth.js";
+import validInfo from "./middleware/valid.js";
+import errorMiddleware from "./middleware/error.js";
+import connect from "./database/mongo.js";
 
-// cookie-parser
-app.use(cookieParser()); // Parse cookies
+// Load environment variables
+dotenv.config();
 
-// cors
-app.use(cors({
-    origin: 'http://your-frontend-domain.com', // Allow the frontend domain to access this server
-    methods: 'GET,POST,PUT,DELETE',           // Allow these methods
-    credentials: true,                       // Allow cookies to be sent
+// Initialize express
+const app = express();
+
+// Security middleware
+app.use(helmet());
+app.use(compression());
+
+// Request logging using winston
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.json()
+    ),
+    transports: [
+        new winston.transports.Console(),
+        new winston.transports.File({ filename: 'logs/app.log' })
+    ]
+});
+
+app.use(expressWinston.logger({
+    winstonInstance: logger,
+    meta: true,
+    expressFormat: true,
+    colorize: false
 }));
 
-// Routes
-app.use('/doctors', authMiddleware, validInfo, doctorRouter); // Doctors route
-app.use('/patient', authMiddleware, validInfo, patientRouter); // Patient route
-app.use('/appointment', authMiddleware, validInfo, appointmentRouter); // Appointment route
-app.use('/wallet', authMiddleware, validInfo, walletRouter); // Wallet route
-app.use('/financialreport', authMiddleware, validInfo, financialreportRouter); // Financial report route
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: process.env.RATE_LIMIT_MAX || 100,
+    message: 'Too many requests from this IP, please try again later.'
+});
+app.use('/api/', limiter);
 
-// Global error handling middleware
+// Body parsing middleware
+app.use(express.json({ limit: '5mb' })); // Reduced limit to 5MB
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+app.use(cookieParser());
+
+// CORS configuration
+const corsOptions = {
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:3000'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['set-cookie'],
+    credentials: true,
+    maxAge: 86400
+};
+app.use(cors(corsOptions));
+
+// Health check
+app.get('/health', (req, res) => {
+    res.status(200).json({
+        status: 'up',
+        timestamp: new Date(),
+        uptime: process.uptime(),
+        environment: process.env.NODE_ENV
+    });
+});
+
+// API routes
+app.use('/api/doctors', authMiddleware, validInfo, doctorRouter);
+app.use('/api/patients', authMiddleware, validInfo, patientRouter);
+app.use('/api/appointments', authMiddleware, validInfo, appointmentRouter);
+app.use('/api/wallets', authMiddleware, validInfo, walletRouter);
+app.use('/api/reports', authMiddleware, validInfo, financialreportRouter);
+
+// 404 handler
+app.use((req, res, next) => {
+    res.status(404).json({
+        error: 'Not Found',
+        message: `The requested URL ${req.originalUrl} was not found on this server.`
+    });
+});
+
+// Error handling middleware
 app.use(errorMiddleware);
 
-// Database connection and server start
-connect().then(() => {
-    app.listen(process.env.PORT, () => {
-        console.log(`Server is running on port ${process.env.PORT}`);
-    });
-}).catch((err) => {
-    console.error("Database connection failed", err);
-    process.exit(1); // Exit process if the connection fails
+// Graceful shutdown
+const gracefulShutdown = async (signal) => {
+    logger.info(`${signal} signal received: closing HTTP server`);
+    try {
+        await mongoose.connection.close();
+        server.close(() => {
+            logger.info('HTTP server closed');
+            process.exit(0);
+        });
+    } catch (err) {
+        logger.error('Error during shutdown:', err);
+        process.exit(1);
+    }
+};
+
+// Error handlers for uncaught errors
+process.on('unhandledRejection', (err) => {
+    logger.error('Unhandled Rejection:', err);
+    process.exit(1);
 });
+
+process.on('uncaughtException', (err) => {
+    logger.error('Uncaught Exception:', err);
+    process.exit(1);
+});
+
+// Shutdown signal handlers
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
+
+// Start server
+const PORT = process.env.PORT || 3000;
+let server;
+
+connect()
+    .then(() => {
+        server = app.listen(PORT, () => {
+            logger.info(`Server running in ${process.env.NODE_ENV} mode on port ${PORT}`);
+        });
+    })
+    .catch((err) => {
+        logger.error("Database connection failed:", err);
+        process.exit(1);
+    });
+
+// Export app for testing
+export default app;
+ 
+    

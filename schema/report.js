@@ -1,36 +1,47 @@
-// models/patientReport.js
 import mongoose from 'mongoose';
 
+
 const patientReportSchema = new mongoose.Schema({
-    patientId: {
+    patient: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Patient',
-        required: true,
+        required: [true, 'Patient is required'],
+        index: true
     },
-    doctorId: {
+    doctor: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Doctor',
-        required: true,
+        required: [true, 'Doctor is required'],
+        index: true
     },
-    consultationDate: {
+    reportDate: {
         type: Date,
-        default: Date.now,
+        required: [true, 'Report date is required'],
+        index: true
     },
     symptoms: {
-        type: String,
-        required: true,
+        type: [String],
+        required: [true, 'Symptoms are required']
     },
     diagnosis: {
         type: String,
-        required: true,
+        required: [true, 'Diagnosis is required']
     },
-    treatmentPlan: {
+    treatment: {
         type: String,
-        required: true,
+        required: [true, 'Treatment is required']
     },
     followUpDate: {
         type: Date,
+        required: [true, 'Follow-up date is required']
     },
+    isActive: {
+        type: Boolean,
+        default: true
+    }
+    }, 
+    {
+    timestamps: true
 });
 
 const PatientReport = mongoose.model('PatientReport', patientReportSchema);
